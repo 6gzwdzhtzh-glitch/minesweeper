@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>經典踩地雷 Minesweeper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+    <style>
+        /* 自訂字體與基礎設定 */
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background: linear-gradient(135deg, #f0f4f8 0%, #d9e2ec 100%);
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        .font-mono-num {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* 遊戲棋盤格線與格子樣式 */
+        .board-container {
+            display: grid;
+            gap: 2px;
+            background-color: #9fb3c8;
+            padding: 4px;
+            border-radius: 12px;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.15);
+            margin: 0 auto;
+        }
+
+        .cell {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: transform 0.08s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+            position: relative;
+        }
+
+        /* 響應式格子大小調整 */
+        @media (max-width: 640px) {
+            .cell {
+                width: 28px;
+                height: 28px;
+                font-size: 14px;
+                border-radius: 4px;
+            }
+        }
+
+        /* 未揭開的格子 (立體感按鈕) */
+        .cell-hidden {
+            background: linear-gradient(145deg, #ffffff, #e6eef5);
+            box-shadow: 0 2px 0 #bcccdc, inset 0 1px 0 #ffffff;
+        }
+
+        .cell-hidden:hover {
+            background: linear-gradient(145deg, #f8fafc, #dce6f0);
+        }
+
+        .cell-hidden:active {
+            transform: translateY(1px);
+            box-shadow: 0 1px 0 #bcccdc;
+        }
+
+        /* 預覽按壓效果 (Chording 提示) */
+        .cell-highlight {
+            background: #dce6f0 !important;
+            transform: translateY(1px);
+            box-shadow: none !important;
+        }
+
+        /* 已揭開的格子 */
+        .cell-revealed {
+            background-color: #f8fafc;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+            cursor: default;
+            animation: popIn 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* 踩到地雷的格子 */
+        .cell-mine-hit {
+            background-color: #ef4444 !important;
+            color: white;
+            animation: shake 0.4s ease-in-out;
+        }
+
+        /* 錯誤插旗標記 */
+        .cell-wrong-flag {
+            background-color: #fee2e2 !important;
+        }
+
+        /* 數字對應經典色彩 */
+        .num-1 { color: #2563eb; } /* 藍 */
+        .num-2 { color: #16a34a; } /* 綠 */
+        .num-3 { color: #dc2626; } /* 紅 */
+        .num-4 { color: #7c3aed; } /* 紫 */
+        .num-5 { color: #991b1b; } /* 深紅 */
+        .num-6 { color: #0891b2; } /* 青 */
+        .num-7 { color: #1e293b; } /* 黑 */
+        .num-8 { color: #64748b; } /* 灰 */
+
+        /* 動畫效果 */
+        @keyframes popIn {
+            0% { transform: scale(0.85); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-3px); }
+            40%, 80% { transform: translateX(3px); }
+        }
+
+        @keyframes flagDrop {
+            0% { transform: scale(1.6) translateY(-6px); opacity: 0; }
+            100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+
+        .flag-anim {
+            animation: flagDrop 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* 自訂捲軸，方便高級模式橫向滑動 */
+        .board-wrapper::-webkit-scrollbar {
+            height: 8px;
+        }
+        .board-wrapper::-webkit-scrollbar-track {
+            background: #e2e8f0;
+            border-radius: 4px;
+        }
+        .board-wrapper::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 4px;
+        }
+        .board-wrapper::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-3 sm:p-6 text-slate-800">
+
+    <!-- 主遊戲卡片容器 -->
+    <main class="w-full max-w-5xl bg-white/90 backdrop-blur-md rounded-3xl shadow-2xl border border-white/60 p-4 sm:p-6 flex flex-col items-center">
+        
+        <!-- 頂部標題與難度選擇 -->
+        <header class="w-full flex flex-col sm:flex-row items-center justify-between gap-4 mb-5 border-b border-slate-200/80 pb-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-slate-800 text-white flex items-center justify-center shadow-md">
+                    <!-- 地雷 SVG 圖示 -->
+                    <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="6" fill="currentColor"/>
+                        <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-black tracking-tight text-slate-800">經典踩地雷</h1>
+                    <p class="text-xs text-slate-500 font-medium">首次點擊保證安全 • 支援雙擊快速展開</p>
+                </div>
+            </div>
+
+            <!-- 難度切換按鈕組 -->
+            <div class="flex bg-slate-100 p-1 rounded-xl border border-slate-200/80 shadow-inner" role="group" aria-label="難度選擇">
+                <button data-diff="beginner" class="diff-btn px-3.5 py-1.5 rounded-lg text-sm font-bold transition-all bg-white text-slate-800 shadow-sm">
+                    初級 <span class="hidden md:inline text-xs font-normal text-slate-500">(9×9)</span>
+                </button>
+                <button data-diff="intermediate" class="diff-btn px-3.5 py-1.5 rounded-lg text-sm font-bold transition-all text-slate-600 hover:text-slate-800">
+                    中級 <span class="hidden md:inline text-xs font-normal text-slate-500">(16×16)</span>
+                </button>
+                <button data-diff="expert" class="diff-btn px-3.5 py-1.5 rounded-lg text-sm font-bold transition-all text-slate-600 hover:text-slate-800">
+                    高級 <span class="hidden md:inline text-xs font-normal text-slate-500">(16×30)</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- 狀態儀表板 (剩餘地雷、表情重置鈕、計時器) -->
+        <section class="w-full max-w-2xl flex items-center justify-between bg-slate-100/90 px-4 py-3 rounded-2xl border border-slate-200/80 mb-4 shadow-sm">
+            <!-- 剩餘地雷計數器 -->
+            <div class="flex items-center gap-2.5 bg-slate-900 text-rose-500 px-3.5 py-1.5 rounded-xl shadow-inner border border-slate-700 min-w-[96px] justify-center">
+                <svg class="w-5 h-5 text-rose-400 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M4 21V4h9l.4 2H20v10h-7l-.4-2H6v7H4z"/>
+                </svg>
+                <span id="mine-counter" class="font-mono-num text-2xl font-extrabold tracking-wider">010</span>
+            </div>
+
+            <!-- 中央重新開始按鈕 (表情符號) -->
+            <button id="reset-btn" title="重新開始遊戲" class="w-12 h-12 rounded-2xl bg-white hover:bg-slate-50 active:scale-95 transition-all shadow-md border border-slate-200 flex items-center justify-center text-2xl cursor-pointer">
+                <span id="face-emoji">🙂</span>
+            </button>
+
+            <!-- 計時器 -->
+            <div class="flex items-center gap-2.5 bg-slate-900 text-emerald-400 px-3.5 py-1.5 rounded-xl shadow-inner border border-slate-700 min-w-[96px] justify-center">
+                <svg class="w-5 h-5 text-emerald-500 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <circle cx="12" cy="13" r="8"/>
+                    <path d="M12 9v4l2.5 2.5M9 2h6M12 2v3"/>
+                </svg>
+                <span id="timer-display" class="font-mono-num text-2xl font-extrabold tracking-wider">000</span>
+            </div>
+        </section>
+
+        <!-- 觸控裝置與便捷操作模式切換列 -->
+        <section class="w-full max-w-2xl flex flex-wrap items-center justify-between gap-2 mb-4 px-1">
+            <div class="flex items-center gap-2">
+                <button id="mode-toggle-btn" class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition-all shadow-sm border bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 active:scale-95">
+                    <span id="mode-icon" class="text-base">⛏️</span>
+                    <span id="mode-text">目前模式：挖掘</span>
+                </button>
+                <span class="text-xs text-slate-500 hidden sm:inline">（點擊切換，或使用滑鼠右鍵插旗）</span>
+            </div>
+
+            <!-- 遊戲說明按鈕 -->
+            <button id="help-btn" class="text-xs font-bold text-slate-500 hover:text-slate-800 flex items-center gap-1 px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                操作說明
+            </button>
+        </section>
+
+        <!-- 遊戲棋盤區域 (支援小螢幕橫向捲動) -->
+        <div class="board-wrapper w-full overflow-x-auto pb-2 flex justify-start md:justify-center">
+            <div id="game-board" class="board-container" oncontextmenu="return false;">
+                <!-- 格子由 JavaScript 動態生成 -->
+            </div>
+        </div>
+
+        <!-- 遊戲結果提示橫幅 (勝利或失敗時顯示) -->
+        <div id="result-banner" class="hidden w-full max-w-md mt-4 p-4 rounded-2xl border text-center transition-all transform">
+            <h2 id="result-title" class="text-lg font-black mb-1"></h2>
+            <p id="result-desc" class="text-sm font-medium mb-3"></p>
+            <button id="banner-restart-btn" class="px-5 py-2 rounded-xl font-bold text-sm text-white shadow-md transition-transform active:scale-95">
+                再玩一局
+            </button>
+        </div>
+    </main>
+
+    <!-- 操作說明彈出視窗 -->
+    <div id="help-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-black text-slate-800 flex items-center gap-2">
+                    <span>📖</span> 踩地雷規則與操作技巧
+                </h3>
+                <button id="close-help-btn" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 font-bold">✕</button>
+            </div>
+            <ul class="space-y-3 text-sm text-slate-600 leading-relaxed">
+                <li class="flex items-start gap-2.5">
+                    <span class="font-bold text-blue-600 shrink-0">🎯 遊戲目標：</span>
+                    <span>找出所有沒有地雷的格子，並避開所有地雷。數字代表周圍 8 格內隱藏的地雷總數。</span>
+                </li>
+                <li class="flex items-start gap-2.5">
+                    <span class="font-bold text-emerald-600 shrink-0">🛡️ 首次安全：</span>
+                    <span>每一局的<strong>第一下點擊</strong>絕對不會踩到地雷，且會自動展開安全區域。</span>
+                </li>
+                <li class="flex items-start gap-2.5">
+                    <span class="font-bold text-amber-600 shrink-0">🚩 插旗標記：</span>
+                    <span>電腦版按<strong>滑鼠右鍵</strong>；手機或平板可點擊上方「<strong>挖掘 / 插旗</strong>」切換按鈕來標記地雷。</span>
+                </li>
+                <li class="flex items-start gap-2.5">
+                    <span class="font-bold text-purple-600 shrink-0">⚡ 快速展開：</span>
+                    <span>當已揭開數字周圍的旗幟數量等於該數字時，<strong>雙擊該數字</strong>（或按滑鼠中鍵）可一鍵展開周圍剩餘格子！</span>
+                </li>
+            </ul>
+            <button id="confirm-help-btn" class="mt-6 w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl transition-colors">
+                我知道了
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * 經典踩地雷遊戲核心邏輯
+         * 包含：難度配置、首次點擊安全生成、Flood Fill 連鎖展開、Chording 快速展開、計時與音效合成
+         */
+
+        // 難度參數設定
+        const DIFFICULTIES = {
+            beginner: { rows: 9, cols: 9, mines: 10, label: '初級' },
+            intermediate: { rows: 16, cols: 16, mines: 40, label: '中級' },
+            expert: { rows: 16, cols: 30, mines: 99, label: '高級' }
+        };
+
+        // 遊戲狀態變數
+        let currentDiff = 'beginner';
+        let rows = 9;
+        let cols = 9;
+        let totalMines = 10;
+
+        let board = [];          // 二維陣列存放每個格子的狀態物件
+        let isFirstClick = true; // 是否為該局第一次點擊
+        let isGameOver = false;  // 遊戲是否已結束
+        let flagsPlaced = 0;     // 已插旗數量
+        let revealedCount = 0;   // 已揭開的安全格子數量
+        let isFlagMode = false;  // 觸控/單鍵插旗模式開關
+
+        // 計時器變數
+        let timerInterval = null;
+        let secondsElapsed = 0;
+
+        // DOM 元素快取
+        const boardEl = document.getElementById('game-board');
+        const mineCounterEl = document.getElementById('mine-counter');
+        const timerDisplayEl = document.getElementById('timer-display');
+        const resetBtn = document.getElementById('reset-btn');
+        const faceEmojiEl = document.getElementById('face-emoji');
+        const modeToggleBtn = document.getElementById('mode-toggle-btn');
+        const modeIconEl = document.getElementById('mode-icon');
+        const modeTextEl = document.getElementById('mode-text');
+        const resultBanner = document.getElementById('result-banner');
+        const resultTitle = document.getElementById('result-title');
+        const resultDesc = document.getElementById('result-desc');
+        const bannerRestartBtn = document.getElementById('banner-restart-btn');
+        const diffButtons = document.querySelectorAll('.diff-btn');
+
+        // 簡易 Web Audio API 音效合成器 (無需外部音檔)
+        const SoundFX = {
+            ctx: null,
+            init() {
+                if (!this.ctx) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) this.ctx = new AudioContext();
+                }
+            },
+            playTone(freq, type, duration, vol = 0.08) {
+                try {
+                    this.init();
+                    if (!this.ctx) return;
+                    if (this.ctx.state === 'suspended') this.ctx.resume();
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                    gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + duration);
+                } catch (e) { /* 忽略瀏覽器自動播放限制錯誤 */ }
+            },
+            click() { this.playTone(520, 'sine', 0.06, 0.06); },
+            flag() { this.playTone(740, 'triangle', 0.09, 0.08); },
+            chord() { this.playTone(620, 'sine', 0.1, 0.08); },
+            boom() {
+                this.playTone(110, 'sawtooth', 0.45, 0.18);
+                setTimeout(() => this.playTone(75, 'square', 0.4, 0.15), 80);
+            },
+            win() {
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((n, i) => {
+                    setTimeout(() => this.playTone(n, 'triangle', 0.22, 0.1), i * 110);
+                });
+            }
+        };
+
+        /**
+         * 初始化 / 重置遊戲
+         */
+        function initGame(diffKey = currentDiff) {
+            currentDiff = diffKey;
+            const config = DIFFICULTIES[currentDiff];
+            rows = config.rows;
+            cols = config.cols;
+            totalMines = config.mines;
+
+            // 重置狀態
+            isFirstClick = true;
+            isGameOver = false;
+            flagsPlaced = 0;
+            revealedCount = 0;
+            secondsElapsed = 0;
+            stopTimer();
+
+            // 更新 UI 顯示
+            updateMineCounter();
+            updateTimerDisplay();
+            setFace('🙂');
+            hideResultBanner();
+            updateDifficultyButtons();
+
+            // 建立空白棋盤資料結構
+            board = Array.from({ length: rows }, (_, r) =>
+                Array.from({ length: cols }, (_, c) => ({
+                    r,
+                    c,
+                    isMine: false,
+                    isRevealed: false,
+                    isFlagged: false,
+                    neighborMines: 0,
+                    el: null
+                }))
+            );
+
+            renderBoard();
+        }
+
+        /**
+         * 渲染棋盤 DOM 網格
+         */
+        function renderBoard() {
+            boardEl.innerHTML = '';
+            boardEl.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    const cellEl = document.createElement('div');
+                    cellEl.className = 'cell cell-hidden';
+                    cellEl.dataset.r = r;
+                    cellEl.dataset.c = c;
+
+                    // 綁定互動事件
+                    cellEl.addEventListener('click', (e) => handleCellClick(r, c, e));
+                    cellEl.addEventListener('contextmenu', (e) => {
+                        e.preventDefault();
+                        handleRightClick(r, c);
+                    });
+                    cellEl.addEventListener('dblclick', () => handleChord(r, c));
+                    
+                    // 支援滑鼠中鍵 Chording 與按壓預覽
+                    cellEl.addEventListener('mousedown', (e) => {
+                        if (isGameOver) return;
+                        if (e.button === 0 && !board[r][c].isRevealed && !board[r][c].isFlagged) {
+                            setFace('😮');
+                        } else if (e.button === 1) {
+                            e.preventDefault();
+                            highlightNeighbors(r, c, true);
+                        }
+                    });
+
+                    cellEl.addEventListener('mouseup', (e) => {
+                        if (isGameOver) return;
+                        setFace('🙂');
+                        if (e.button === 1) {
+                            highlightNeighbors(r, c, false);
+                            handleChord(r, c);
+                        }
+                    });
+
+                    cellEl.addEventListener('mouseleave', () => {
+                        if (!isGameOver) setFace('🙂');
+                        highlightNeighbors(r, c, false);
+                    });
+
+                    board[r][c].el = cellEl;
+                    boardEl.appendChild(cellEl);
+                }
+            }
+        }
+
+        /**
+         * 佈置地雷 (保證首次點擊的格子及其周圍 8 格安全，讓開局體驗更流暢)
+         */
+        function placeMines(safeR, safeC) {
+            let minesToPlace = totalMines;
+            while (minesToPlace > 0) {
+                const r = Math.floor(Math.random() * rows);
+                const c = Math.floor(Math.random() * cols);
+
+                // 避開首次點擊及其周圍 3x3 區域（若棋盤夠大）
+                const isSafeZone = Math.abs(r - safeR) <= 1 && Math.abs(c - safeC) <= 1;
+                if (!board[r][c].isMine && !isSafeZone) {
+                    board[r][c].isMine = true;
+                    minesToPlace--;
+                }
+            }
+
+            // 計算每個非地雷格周圍的地雷數量
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    if (!board[r][c].isMine) {
+                        board[r][c].neighborMines = countNeighborMines(r, c);
+                    }
+                }
+            }
+        }
+
+        /**
+         * 取得某格周圍合法的相鄰座標
+         */
+        function getNeighbors(r, c) {
+            const list = [];
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    const nr = r + dr;
+                    const nc = c + dc;
+                    if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) {
+                        list.push(board[nr][nc]);
+                    }
+                }
+            }
+            return list;
+        }
+
+        function countNeighborMines(r, c) {
+            return getNeighbors(r, c).filter(n => n.isMine).length;
+        }
+
+        /**
+         * 左鍵點擊 / 觸控點擊處理
+         */
+        function handleCellClick(r, c) {
+            if (isGameOver) return;
+            const cell = board[r][c];
+
+            // 若已揭開，在觸控裝置上點擊數字也可觸發快速展開 (Chording)
+            if (cell.isRevealed) {
+                handleChord(r, c);
+                return;
+            }
+
+            // 若目前處於「插旗模式」，左鍵點擊等同於插旗
+            if (isFlagMode) {
+                toggleFlag(r, c);
+                return;
+            }
+
+            // 已插旗的格子不可直接挖掘
+            if (cell.isFlagged) return;
+
+            // 首次點擊：生成地雷並啟動計時器
+            if (isFirstClick) {
+                isFirstClick = false;
+                placeMines(r, c);
+                startTimer();
+            }
+
+            revealCell(r, c);
+        }
+
+        /**
+         * 右鍵點擊插旗處理
+         */
+        function handleRightClick(r, c) {
+            if (isGameOver) return;
+            const cell = board[r][c];
+            if (cell.isRevealed) return;
+            toggleFlag(r, c);
+        }
+
+        /**
+         * 切換旗幟狀態
+         */
+        function toggleFlag(r, c) {
+            const cell = board[r][c];
+            if (cell.isRevealed) return;
+
+            cell.isFlagged = !cell.isFlagged;
+            SoundFX.flag();
+
+            if (cell.isFlagged) {
+                flagsPlaced++;
+                cell.el.innerHTML = `<span class="flag-anim text-rose-600 drop-shadow-xs">🚩</span>`;
+            } else {
+                flagsPlaced--;
+                cell.el.innerHTML = '';
+            }
+
+            updateMineCounter();
+        }
+
+        /**
+         * 揭開格子 (包含空白格連鎖展開 Flood Fill)
+         */
+        function revealCell(r, c) {
+            const cell = board[r][c];
+            if (cell.isRevealed || cell.isFlagged) return;
+
+            cell.isRevealed = true;
+            cell.el.classList.remove('cell-hidden');
+            cell.el.classList.add('cell-revealed');
+
+            // 踩到地雷：遊戲失敗
+            if (cell.isMine) {
+                cell.el.classList.add('cell-mine-hit');
+                cell.el.innerHTML = '💣';
+                triggerGameOver(false);
+                return;
+            }
+
+            revealedCount++;
+            SoundFX.click();
+
+            if (cell.neighborMines > 0) {
+                cell.el.textContent = cell.neighborMines;
+                cell.el.classList.add(`num-${cell.neighborMines}`);
+            } else {
+                // 周圍無地雷：使用 BFS 佇列自動展開相鄰空白區域
+                const queue = [cell];
+                while (queue.length > 0) {
+                    const curr = queue.shift();
+                    const neighbors = getNeighbors(curr.r, curr.c);
+                    for (const n of neighbors) {
+                        if (!n.isRevealed && !n.isFlagged && !n.isMine) {
+                            n.isRevealed = true;
+                            revealedCount++;
+                            n.el.classList.remove('cell-hidden');
+                            n.el.classList.add('cell-revealed');
+                            if (n.neighborMines > 0) {
+                                n.el.textContent = n.neighborMines;
+                                n.el.classList.add(`num-${n.neighborMines}`);
+                            } else {
+                                queue.push(n);
+                            }
+                        }
+                    }
+                }
+            }
+
+            checkWinCondition();
+        }
+
+        /**
+         * 數字快速展開 (Chording)
+         * 當已揭開數字周圍的旗幟數 === 該格數字時，自動揭開周圍所有未插旗格子
+         */
+        function handleChord(r, c) {
+            if (isGameOver) return;
+            const cell = board[r][c];
+            if (!cell.isRevealed || cell.neighborMines === 0) return;
+
+            const neighbors = getNeighbors(r, c);
+            const flaggedNeighbors = neighbors.filter(n => n.isFlagged);
+            const hiddenUnflagged = neighbors.filter(n => !n.isRevealed && !n.isFlagged);
+
+            if (hiddenUnflagged.length === 0) return;
+
+            if (flaggedNeighbors.length === cell.neighborMines) {
+                SoundFX.chord();
+                for (const target of hiddenUnflagged) {
+                    revealCell(target.r, target.c);
+                    if (isGameOver) break;
+                }
+            } else {
+                // 若旗幟數量尚未滿足，給予短暫視覺閃爍提示周圍未揭開格子
+                highlightNeighbors(r, c, true);
+                setTimeout(() => highlightNeighbors(r, c, false), 180);
+            }
+        }
+
+        /**
+         * 高亮提示周圍未揭開的格子
+         */
+        function highlightNeighbors(r, c, active) {
+            const cell = board[r][c];
+            if (!cell || !cell.isRevealed) return;
+            getNeighbors(r, c).forEach(n => {
+                if (!n.isRevealed && !n.isFlagged) {
+                    n.el.classList.toggle('cell-highlight', active);
+                }
+            });
+        }
+
+        /**
+         * 檢查是否達成勝利條件
+         */
+        function checkWinCondition() {
+            const safeTotal = rows * cols - totalMines;
+            if (revealedCount === safeTotal && !isGameOver) {
+                triggerGameOver(true);
+            }
+        }
+
+        /**
+         * 結束遊戲處理 (勝利或失敗)
+         */
+        function triggerGameOver(isWin) {
+            isGameOver = true;
+            stopTimer();
+
+            if (isWin) {
+                SoundFX.win();
+                setFace('😎');
+                // 自動將所有剩餘地雷插上旗幟
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const cell = board[r][c];
+                        if (cell.isMine && !cell.isFlagged) {
+                            cell.isFlagged = true;
+                            cell.el.innerHTML = `<span class="flag-anim text-rose-600">🚩</span>`;
+                        }
+                    }
+                }
+                flagsPlaced = totalMines;
+                updateMineCounter();
+                showResultBanner(true);
+            } else {
+                SoundFX.boom();
+                setFace('😵');
+                // 顯示所有未發現的地雷，並標記插錯的旗幟
+                for (let r = 0; r < rows; r++) {
+                    for (let c = 0; c < cols; c++) {
+                        const cell = board[r][c];
+                        if (cell.isMine && !cell.isFlagged && !cell.isRevealed) {
+                            cell.el.classList.remove('cell-hidden');
+                            cell.el.classList.add('cell-revealed');
+                            cell.el.innerHTML = '💣';
+                        } else if (!cell.isMine && cell.isFlagged) {
+                            cell.el.classList.add('cell-wrong-flag');
+                            cell.el.innerHTML = '❌';
+                        }
+                    }
+                }
+                showResultBanner(false);
+            }
+        }
+
+        /**
+         * UI 更新輔助函式
+         */
+        function updateMineCounter() {
+            const remaining = totalMines - flagsPlaced;
+            const formatted = remaining < 0
+                ? '-' + String(Math.abs(remaining)).padStart(2, '0')
+                : String(remaining).padStart(3, '0');
+            mineCounterEl.textContent = formatted;
+        }
+
+        function startTimer() {
+            stopTimer();
+            timerInterval = setInterval(() => {
+                if (secondsElapsed < 999) {
+                    secondsElapsed++;
+                    updateTimerDisplay();
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+        }
+
+        function updateTimerDisplay() {
+            timerDisplayEl.textContent = String(secondsElapsed).padStart(3, '0');
+        }
+
+        function setFace(emoji) {
+            faceEmojiEl.textContent = emoji;
+        }
+
+        function updateDifficultyButtons() {
+            diffButtons.forEach(btn => {
+                const isSelected = btn.dataset.diff === currentDiff;
+                if (isSelected) {
+                    btn.className = 'diff-btn px-3.5 py-1.5 rounded-lg text-sm font-bold transition-all bg-white text-slate-800 shadow-sm';
+                } else {
+                    btn.className = 'diff-btn px-3.5 py-1.5 rounded-lg text-sm font-bold transition-all text-slate-600 hover:text-slate-800';
+                }
+            });
+        }
+
+        function showResultBanner(isWin) {
+            resultBanner.classList.remove('hidden', 'bg-emerald-50', 'border-emerald-200', 'text-emerald-900', 'bg-rose-50', 'border-rose-200', 'text-rose-900');
+            if (isWin) {
+                resultBanner.classList.add('bg-emerald-50', 'border-emerald-200', 'text-emerald-900');
+                resultTitle.textContent = '🎉 恭喜掃雷成功！';
+                resultDesc.textContent = `您在「${DIFFICULTIES[currentDiff].label}」難度下耗時 ${secondsElapsed} 秒完成挑戰！`;
+                bannerRestartBtn.className = 'px-5 py-2 rounded-xl font-bold text-sm text-white shadow-md transition-transform active:scale-95 bg-emerald-600 hover:bg-emerald-500';
+            } else {
+                resultBanner.classList.add('bg-rose-50', 'border-rose-200', 'text-rose-900');
+                resultTitle.textContent = '💥 踩到地雷了！';
+                resultDesc.textContent = '別氣餒，觀察數字線索再試一次吧！';
+                bannerRestartBtn.className = 'px-5 py-2 rounded-xl font-bold text-sm text-white shadow-md transition-transform active:scale-95 bg-rose-600 hover:bg-rose-500';
+            }
+        }
+
+        function hideResultBanner() {
+            resultBanner.classList.add('hidden');
+        }
+
+        // 切換「挖掘 / 插旗」模式 (適合手機與觸控裝置)
+        function toggleActionMode() {
+            isFlagMode = !isFlagMode;
+            if (isFlagMode) {
+                modeIconEl.textContent = '🚩';
+                modeTextEl.textContent = '目前模式：插旗';
+                modeToggleBtn.className = 'flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition-all shadow-sm border bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 active:scale-95';
+            } else {
+                modeIconEl.textContent = '⛏️';
+                modeTextEl.textContent = '目前模式：挖掘';
+                modeToggleBtn.className = 'flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-sm transition-all shadow-sm border bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 active:scale-95';
+            }
+        }
+
+        // 事件監聽綁定
+        diffButtons.forEach(btn => {
+            btn.addEventListener('click', () => initGame(btn.dataset.diff));
+        });
+
+        resetBtn.addEventListener('click', () => initGame(currentDiff));
+        bannerRestartBtn.addEventListener('click', () => initGame(currentDiff));
+        modeToggleBtn.addEventListener('click', toggleActionMode);
+
+        // 操作說明 Modal 控制
+        const helpModal = document.getElementById('help-modal');
+        document.getElementById('help-btn').addEventListener('click', () => {
+            helpModal.classList.remove('hidden');
+            helpModal.classList.add('flex');
+        });
+        const closeHelp = () => {
+            helpModal.classList.add('hidden');
+            helpModal.classList.remove('flex');
+        };
+        document.getElementById('close-help-btn').addEventListener('click', closeHelp);
+        document.getElementById('confirm-help-btn').addEventListener('click', closeHelp);
+        helpModal.addEventListener('click', (e) => {
+            if (e.target === helpModal) closeHelp();
+        });
+
+        // 啟動預設初級遊戲
+        window.addEventListener('DOMContentLoaded', () => {
+            initGame('beginner');
+        });
+    </script>
+</body>
+</html>
